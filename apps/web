@@ -1,4 +1,0 @@
-mkdir -p apps
-cd apps
-pnpm create vite web --template react-ts
-cd ..

@@ -16,7 +16,12 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "devDependencies": {
-    "typescript": "^5.6.0"
+  "dependencies": {
+  "@reflexarena/shared": "workspace:*",
+  "cors": "^2.8.5",
+  "dotenv": "^16.4.5",
+  "express": "^4.19.2",
+  "ws": "^8.18.0",
+  "zod": "^3.24.1"
   }
 }

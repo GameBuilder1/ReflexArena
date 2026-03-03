@@ -202,6 +202,67 @@ ARENA_ANCHOR_ADDRESS=0x...
 
 ---
 
+## Avalanche Escrow API
+
+The API exposes three HTTP endpoints to create, fund, and settle on-chain escrows for each match.
+Add the following to `apps/api/.env` before starting the server:
+
+```
+AVALANCHE_RPC_URL=https://api.avax-test.network/ext/bc/C/rpc
+AVALANCHE_PRIVATE_KEY=<your_private_key>
+AVALANCHE_ESCROW_ADDRESS=<deployed_ReflexArenaEscrow_address>
+```
+
+### Create a match escrow
+
+```bash
+curl -X POST http://localhost:4000/match/create \
+  -H "Content-Type: application/json" \
+  -d '{"matchId":"match-001","stakeAvax":"0.1","playerAUserId":"alice","playerBUserId":"bob"}'
+```
+
+Response:
+```json
+{"matchId":"match-001","escrowId":"0x...","txHash":null,"stakeAvax":"0.1","status":"CREATED"}
+```
+
+### Fund a player's side (call once per player)
+
+```bash
+# Player A joins
+curl -X POST http://localhost:4000/match/join \
+  -H "Content-Type: application/json" \
+  -d '{"matchId":"match-001","userId":"alice"}'
+
+# Player B joins
+curl -X POST http://localhost:4000/match/join \
+  -H "Content-Type: application/json" \
+  -d '{"matchId":"match-001","userId":"bob"}'
+```
+
+Response (second join sets status to READY):
+```json
+{"matchId":"match-001","userId":"bob","txHash":"0x...","fundedA":true,"fundedB":true,"status":"READY"}
+```
+
+### Settle the match
+
+```bash
+curl -X POST http://localhost:4000/match/settle \
+  -H "Content-Type: application/json" \
+  -d '{"matchId":"match-001","winnerUserId":"alice"}'
+```
+
+Response:
+```json
+{"matchId":"match-001","winnerUserId":"alice","txHash":"0x...","status":"SETTLED"}
+```
+
+All three endpoints broadcast corresponding WebSocket events (`ESCROW_CREATED`, `ESCROW_FUNDED`,
+`READY_TO_START`, `ESCROW_SETTLED`, `ESCROW_ERROR`) to every connected client.
+
+---
+
 ## Roadmap
 
 ### Phase 1 – MVP

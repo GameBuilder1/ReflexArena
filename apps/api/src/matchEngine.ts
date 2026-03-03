@@ -143,7 +143,7 @@ export class MatchEngine {
     if (match.playerB.userId === userId) match.playerB.client = undefined;
 
     // Only pause if LIVE/COUNTDOWN (countdown pause is acceptable)
-    if ((match.status === "LIVE" || match.status === "COUNTDOWN") && !(match.status === "ENDED")) {
+    if (match.status === "LIVE" || match.status === "COUNTDOWN") {
       this.pauseMatch(match);
     }
   }

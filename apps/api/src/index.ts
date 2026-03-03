@@ -2,11 +2,17 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import http from "http";
+import type WebSocket from "ws";
 import { WebSocketServer } from "ws";
+import { parseEther } from "ethers";
+import { z } from "zod";
 
 import { send, parseClientMessage, AuthSchema, TapSchema, RematchSchema, type AuthedClient } from "./ws";
 import { MatchEngine, COUNTDOWN_MS, MATCH_DURATION_MS, RECONNECT_WINDOW_MS, REMATCH_WINDOW_MS } from "./matchEngine";
 import { MatchmakingQueue } from "./matchmaking";
+import { createEscrow, joinEscrow, settleEscrow } from "./avalanche/escrow";
+import { startEscrowListener } from "./avalanche/events";
+import type { EscrowState } from "./avalanche/types";
 
 const PORT = Number(process.env.API_PORT || 4000);
 
@@ -16,11 +22,152 @@ app.use(express.json());
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// Connected clients by ws (declared early so HTTP route handlers can broadcast)
+const clients = new Map<WebSocket, AuthedClient>(); // ws -> client
+
+// ── In-memory escrow state ────────────────────────────────────────────────────
+const escrows = new Map<string, EscrowState>();
+
+// ── Zod schemas for match endpoints ──────────────────────────────────────────
+const CreateMatchSchema = z.object({
+  matchId: z.string().min(1),
+  stakeAvax: z.string().regex(/^\d+(\.\d+)?$/).refine(
+    (v) => { const n = Number(v); return n >= 0.001 && n <= 1000; },
+    { message: "stakeAvax must be between 0.001 and 1000" }
+  ),
+  playerAUserId: z.string().min(1),
+  playerBUserId: z.string().min(1).optional(),
+});
+
+const JoinMatchSchema = z.object({
+  matchId: z.string().min(1),
+  userId: z.string().min(1),
+});
+
+const SettleMatchSchema = z.object({
+  matchId: z.string().min(1),
+  winnerUserId: z.string().min(1),
+});
+
+// ── POST /match/create ────────────────────────────────────────────────────────
+app.post("/match/create", async (req, res) => {
+  const parsed = CreateMatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "BAD_REQUEST", message: parsed.error.message });
+    return;
+  }
+  const { matchId, stakeAvax, playerAUserId, playerBUserId } = parsed.data;
+
+  if (escrows.has(matchId)) {
+    const s = escrows.get(matchId)!;
+    res.json({ matchId, escrowId: s.escrowId ?? "", txHash: s.createTxHash ?? null, stakeAvax, status: s.status });
+    return;
+  }
+
+  const contractAddress = process.env.AVALANCHE_ESCROW_ADDRESS ?? "";
+  const stakeWei = parseEther(stakeAvax);
+  const state: EscrowState = {
+    matchId,
+    contractAddress,
+    stakeWei,
+    fundedA: false,
+    fundedB: false,
+    status: "NONE",
+  };
+  escrows.set(matchId, state);
+
+  try {
+    const { escrowId, txHash } = await createEscrow(state, matchId, stakeWei, playerAUserId, playerBUserId);
+
+    // Broadcast to all connected clients
+    for (const client of clients.values()) {
+      send(client.ws, { type: "ESCROW_CREATED", payload: { matchId, escrowId, txHash, stakeAvax } });
+    }
+
+    res.json({ matchId, escrowId, txHash, stakeAvax, status: state.status });
+  } catch (err) {
+    state.status = "ERROR";
+    const message = err instanceof Error ? err.message : String(err);
+    for (const client of clients.values()) {
+      send(client.ws, { type: "ESCROW_ERROR", payload: { matchId, code: "CREATE_FAILED", message } });
+    }
+    res.status(500).json({ error: "CREATE_FAILED", message });
+  }
+});
+
+// ── POST /match/join ──────────────────────────────────────────────────────────
+app.post("/match/join", async (req, res) => {
+  const parsed = JoinMatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "BAD_REQUEST", message: parsed.error.message });
+    return;
+  }
+  const { matchId, userId } = parsed.data;
+  const state = escrows.get(matchId);
+  if (!state) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Match not found. Call /match/create first." });
+    return;
+  }
+
+  try {
+    const { txHash, fundedA, fundedB, status } = await joinEscrow(state, userId);
+
+    for (const client of clients.values()) {
+      send(client.ws, { type: "ESCROW_FUNDED", payload: { matchId, userId, txHash, fundedA, fundedB } });
+    }
+    if (status === "READY") {
+      for (const client of clients.values()) {
+        send(client.ws, { type: "READY_TO_START", payload: { matchId } });
+      }
+    }
+
+    res.json({ matchId, userId, txHash, fundedA, fundedB, status });
+  } catch (err) {
+    state.status = "ERROR";
+    const message = err instanceof Error ? err.message : String(err);
+    for (const client of clients.values()) {
+      send(client.ws, { type: "ESCROW_ERROR", payload: { matchId, code: "JOIN_FAILED", message } });
+    }
+    res.status(500).json({ error: "JOIN_FAILED", message });
+  }
+});
+
+// ── POST /match/settle ────────────────────────────────────────────────────────
+app.post("/match/settle", async (req, res) => {
+  const parsed = SettleMatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "BAD_REQUEST", message: parsed.error.message });
+    return;
+  }
+  const { matchId, winnerUserId } = parsed.data;
+  const state = escrows.get(matchId);
+  if (!state) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Match not found." });
+    return;
+  }
+
+  try {
+    const { txHash, status } = await settleEscrow(state, matchId, winnerUserId);
+
+    for (const client of clients.values()) {
+      send(client.ws, { type: "ESCROW_SETTLED", payload: { matchId, winnerUserId, txHash } });
+    }
+
+    res.json({ matchId, winnerUserId, txHash, status });
+  } catch (err) {
+    state.status = "ERROR";
+    const message = err instanceof Error ? err.message : String(err);
+    for (const client of clients.values()) {
+      send(client.ws, { type: "ESCROW_ERROR", payload: { matchId, code: "SETTLE_FAILED", message } });
+    }
+    res.status(500).json({ error: "SETTLE_FAILED", message });
+  }
+});
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
-// Connected clients by ws
-const clients = new Map<any, AuthedClient>(); // ws -> client
+// (clients map is declared above, before the HTTP route handlers)
 
 const engine = new MatchEngine({
   onMatchFound: (match, forPlayer) => {
@@ -88,35 +235,35 @@ wss.on("connection", (ws) => {
   ws.on("message", (raw) => {
     const msg = parseClientMessage(raw);
     if (!msg) {
-      send(ws as any, { type: "ERROR", payload: { code: "BAD_MESSAGE", message: "Invalid message" } });
+      send(ws, { type: "ERROR", payload: { code: "BAD_MESSAGE", message: "Invalid message" } });
       return;
     }
 
     // AUTH is required first
     if (!authed) {
       if (msg.type !== "AUTH") {
-        send(ws as any, { type: "ERROR", payload: { code: "NOT_AUTHED", message: "AUTH required" } });
+        send(ws, { type: "ERROR", payload: { code: "NOT_AUTHED", message: "AUTH required" } });
         return;
       }
       const parsed = AuthSchema.safeParse(msg.payload);
       if (!parsed.success) {
-        send(ws as any, { type: "ERROR", payload: { code: "BAD_AUTH", message: "Invalid auth payload" } });
+        send(ws, { type: "ERROR", payload: { code: "BAD_AUTH", message: "Invalid auth payload" } });
         return;
       }
 
       authed = {
-        ws: ws as any,
+        ws,
         userId: parsed.data.userId,
         username: parsed.data.username,
         connectedAt: Date.now(),
         lastSeqByMatch: new Map()
       };
-      clients.set(ws as any, authed);
+      clients.set(ws, authed);
 
       // attach (reconnect) if needed
       engine.attachClient(authed.userId, authed);
 
-      send(ws as any, { type: "AUTH_OK", payload: { userId: authed.userId, username: authed.username } });
+      send(ws, { type: "AUTH_OK", payload: { userId: authed.userId, username: authed.username } });
       return;
     }
 
@@ -125,15 +272,15 @@ wss.on("connection", (ws) => {
       case "JOIN_QUEUE": {
         const res = queue.join(authed);
         if (!res.ok) {
-          send(ws as any, { type: "ERROR", payload: { code: res.code, message: "Unable to join queue" } });
+          send(ws, { type: "ERROR", payload: { code: res.code, message: "Unable to join queue" } });
           return;
         }
-        send(ws as any, { type: "QUEUE_STATUS", payload: { status: "SEARCHING" } });
+        send(ws, { type: "QUEUE_STATUS", payload: { status: "SEARCHING" } });
         break;
       }
       case "LEAVE_QUEUE": {
         queue.leave(authed.userId);
-        send(ws as any, { type: "QUEUE_STATUS", payload: { status: "IDLE" } });
+        send(ws, { type: "QUEUE_STATUS", payload: { status: "IDLE" } });
         break;
       }
       case "TAP": {
@@ -153,7 +300,7 @@ wss.on("connection", (ws) => {
         break;
       }
       case "PING": {
-        send(ws as any, { type: "PONG", payload: { t: msg.payload.t } });
+        send(ws, { type: "PONG", payload: { t: msg.payload.t } });
         break;
       }
       default:
@@ -162,7 +309,7 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
-    const c = clients.get(ws as any);
+    const c = clients.get(ws);
     if (!c) return;
 
     // remove from queue if queued
@@ -171,10 +318,11 @@ wss.on("connection", (ws) => {
     // detach from match (pause/reconnect logic lives in engine)
     engine.detachClient(c.userId);
 
-    clients.delete(ws as any);
+    clients.delete(ws);
   });
 });
 
 server.listen(PORT, () => {
   console.log(`API listening on http://localhost:${PORT}`);
+  startEscrowListener(escrows, clients);
 });

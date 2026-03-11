@@ -1,12 +1,22 @@
-Create an in-memory data store for Reflex Arena scores.
+import type { Score } from "@reflexarena/shared";
 
-Use a Map<string, Score>.
+export const scores = new Map<string, Score>();
 
-Add helper functions:
+export function createScore(score: Score): Score {
+  scores.set(score.scoreId, score);
+  return score;
+}
 
-createScore(score: Score)
-getScoresByUser(userId: string)
-getAllScores()
-getScoreById(scoreId: string)
+export function getScoreById(scoreId: string): Score | undefined {
+  return scores.get(scoreId);
+}
 
-Import the Score type from @reflexarena/shared.
+export function getScoresByUser(userId: string): Score[] {
+  return Array.from(scores.values())
+    .filter((score) => score.userId === userId)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export function getAllScores(): Score[] {
+  return Array.from(scores.values());
+}

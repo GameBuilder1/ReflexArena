@@ -1,3 +1,70 @@
+Generate TypeScript types for the Reflex Arena backend.
+
+We are building a mobile-first social reflex challenge platform.
+
+Create types for:
+
+User
+Profile
+Score
+Friendship
+Challenge
+
+Constraints:
+
+User
+- userId: string
+- email?: string
+- createdAt: string
+
+Profile
+- userId
+- username
+- avatarUrl?
+- bestScore
+- averageReactionMs
+- accuracyPct
+- wins
+- losses
+- createdAt
+- updatedAt
+
+Score
+- scoreId
+- userId
+- challengeType: "REFLEX_TAP_V1"
+- score
+- validHits
+- trapHits
+- misses
+- accuracyPct
+- averageReactionMs
+- durationSec
+- createdAt
+
+Friendship
+- friendshipId
+- requesterUserId
+- addresseeUserId
+- status: "PENDING" | "ACCEPTED" | "BLOCKED"
+- createdAt
+- updatedAt
+
+Challenge
+- challengeId
+- fromUserId
+- toUserId
+- challengeType: "BEAT_MY_SCORE"
+- targetScore
+- scoreId
+- status: "PENDING" | "COMPLETED" | "EXPIRED" | "DECLINED"
+- completedScoreId?
+- createdAt
+- expiresAt?
+- updatedAt
+
+Export all types.
+
 export type ClientToServer =
   | { type: "AUTH"; payload: { userId: string; username: string } }
   | { type: "JOIN_QUEUE"; payload: {} }

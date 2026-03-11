@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import scoresRouter from "./routes/scores";
 
 import authRouter from "./routes/auth";
 import profileRouter from "./routes/profile";

@@ -1,8 +1,9 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import leaderboardRouter from "./routes/leaderboard";
 import scoresRouter from "./routes/scores";
-app.use(scoresRouter);
+
 
 import authRouter from "./routes/auth";
 import profileRouter from "./routes/profile";
@@ -14,6 +15,10 @@ import challengesRouter from "./routes/challenges";
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+app.use(leaderboardRouter);
+
+app.use(scoresRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 

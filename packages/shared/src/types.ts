@@ -1,69 +1,89 @@
-Generate TypeScript types for the Reflex Arena backend.
+// ===============================
+// Reflex Arena Core Domain Types
+// ===============================
 
-We are building a mobile-first social reflex challenge platform.
+export type User = {
+  userId: string;
+  email?: string;
+  createdAt: string;
+};
 
-Create types for:
+export type Profile = {
+  userId: string;
+  username: string;
+  avatarUrl?: string;
+  bestScore: number;
+  averageReactionMs: number;
+  accuracyPct: number;
+  wins: number;
+  losses: number;
+  createdAt: string;
+  updatedAt: string;
+};
 
-User
-Profile
-Score
-Friendship
-Challenge
+export type Score = {
+  scoreId: string;
+  userId: string;
+  challengeType: "REFLEX_TAP_V1";
+  score: number;
+  validHits: number;
+  trapHits: number;
+  misses: number;
+  accuracyPct: number;
+  averageReactionMs: number;
+  durationSec: number;
+  createdAt: string;
+};
 
-Constraints:
+export type Friendship = {
+  friendshipId: string;
+  requesterUserId: string;
+  addresseeUserId: string;
+  status: "PENDING" | "ACCEPTED" | "BLOCKED";
+  createdAt: string;
+  updatedAt: string;
+};
 
-User
-- userId: string
-- email?: string
-- createdAt: string
+export type Challenge = {
+  challengeId: string;
+  fromUserId: string;
+  toUserId: string;
+  challengeType: "BEAT_MY_SCORE";
+  targetScore: number;
+  scoreId: string;
+  status: "PENDING" | "COMPLETED" | "EXPIRED" | "DECLINED";
+  completedScoreId?: string;
+  createdAt: string;
+  expiresAt?: string;
+  updatedAt: string;
+};
 
-Profile
-- userId
-- username
-- avatarUrl?
-- bestScore
-- averageReactionMs
-- accuracyPct
-- wins
-- losses
-- createdAt
-- updatedAt
 
-Score
-- scoreId
-- userId
-- challengeType: "REFLEX_TAP_V1"
-- score
-- validHits
-- trapHits
-- misses
-- accuracyPct
-- averageReactionMs
-- durationSec
-- createdAt
+// ===============================
+// WebSocket Game Types (existing)
+// ===============================
 
-Friendship
-- friendshipId
-- requesterUserId
-- addresseeUserId
-- status: "PENDING" | "ACCEPTED" | "BLOCKED"
-- createdAt
-- updatedAt
+export type TargetKind = "VALID" | "TRAP";
 
-Challenge
-- challengeId
-- fromUserId
-- toUserId
-- challengeType: "BEAT_MY_SCORE"
-- targetScore
-- scoreId
-- status: "PENDING" | "COMPLETED" | "EXPIRED" | "DECLINED"
-- completedScoreId?
-- createdAt
-- expiresAt?
-- updatedAt
+export type TargetSpawn = {
+  id: string;
+  kind: TargetKind;
+  x: number;
+  y: number;
+  ttlMs: number;
+};
 
-Export all types.
+export type MatchEndPayload = {
+  matchId: string;
+  scoreYou: number;
+  scoreOpp: number;
+  winner: "YOU" | "OPP" | "TIE";
+};
+
+
+// ===============================
+// WebSocket Client → Server
+// ===============================
 
 export type ClientToServer =
   | { type: "AUTH"; payload: { userId: string; username: string } }
@@ -72,6 +92,11 @@ export type ClientToServer =
   | { type: "TAP"; payload: { matchId: string; seq: number; targetId: string; clientTs: number } }
   | { type: "REMATCH_DECISION"; payload: { matchId: string; wantRematch: boolean } }
   | { type: "PING"; payload: { t: number } };
+
+
+// ===============================
+// WebSocket Server → Client
+// ===============================
 
 export type ServerToClient =
   | { type: "AUTH_OK"; payload: { userId: string; username: string } }
@@ -88,21 +113,3 @@ export type ServerToClient =
   | { type: "REMATCH_WAIT"; payload: { matchId: string; windowSec: number } }
   | { type: "REMATCH_STARTING"; payload: { matchId: string; countdownSec: number } }
   | { type: "PONG"; payload: { t: number } };
-
-export type TargetKind = "VALID" | "TRAP";
-
-/** Add these if they exist in your API today; otherwise keep placeholders until we paste full API code */
-export type TargetSpawn = {
-  id: string;
-  kind: TargetKind;
-  x: number;
-  y: number;
-  ttlMs: number;
-};
-
-export type MatchEndPayload = {
-  matchId: string;
-  scoreYou: number;
-  scoreOpp: number;
-  winner: "YOU" | "OPP" | "TIE";
-};

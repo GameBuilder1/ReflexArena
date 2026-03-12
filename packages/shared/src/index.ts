@@ -1,4 +1,5 @@
 export type TargetKind = "VALID" | "TRAP";
+export * from "./types";
 
 export type TargetSpawn = {
   targetId: string;

@@ -20,7 +20,12 @@ export type ServerToClient =
   | { type: "REMATCH_OFFER"; payload: { matchId: string; windowSec: number } }
   | { type: "REMATCH_WAIT"; payload: { matchId: string; windowSec: number } }
   | { type: "REMATCH_STARTING"; payload: { matchId: string; countdownSec: number } }
-  | { type: "PONG"; payload: { t: number } };
+  | { type: "PONG"; payload: { t: number } }
+  | { type: "ESCROW_CREATED"; payload: { matchId: string; escrowId: string; txHash: string | null; stakeAvax: string } }
+  | { type: "ESCROW_FUNDED"; payload: { matchId: string; userId: string; txHash: string; fundedA: boolean; fundedB: boolean } }
+  | { type: "READY_TO_START"; payload: { matchId: string } }
+  | { type: "ESCROW_SETTLED"; payload: { matchId: string; winnerUserId: string; txHash: string } }
+  | { type: "ESCROW_ERROR"; payload: { matchId: string; code: string; message: string } };
 
 export type TargetKind = "VALID" | "TRAP";
 

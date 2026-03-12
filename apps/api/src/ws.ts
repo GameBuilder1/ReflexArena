@@ -1,7 +1,6 @@
 import type WebSocket from "ws";
 import { z } from "zod";
 import type { ClientToServer, ServerToClient } from "./types";
-import type { ClientToServer, ServerToClient } from "@reflexarena/shared/src/types";
 
 export type AuthedClient = {
   ws: WebSocket;
